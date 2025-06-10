@@ -18,6 +18,7 @@ class _WelcomePageState extends State<WelcomePage> {
     _speakWelcomeMessage();
   }
 
+  //Speaks to the user
   Future<void> _speakWelcomeMessage() async {
     await flutterTts.setLanguage("en-US");
     await flutterTts.setSpeechRate(0.5);
