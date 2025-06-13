@@ -3,7 +3,6 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
-// Make sure this matches what you added in main.dart
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
 
 class MainPage extends StatefulWidget {
@@ -14,11 +13,10 @@ class MainPage extends StatefulWidget {
 }
 
 class _MainPageState extends State<MainPage> with RouteAware {
-  //Variables
   bool isDetectionOn = false;
   final FlutterTts flutterTts = FlutterTts();
 
-  Battery _battery = Battery();
+  final Battery _battery = Battery();
   String _batteryLevel = "Loading...";
   String _connectionStatus = "Checking...";
   final Connectivity _connectivity = Connectivity();
@@ -34,7 +32,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
     _getBatteryLevel();
     _getConnectionStatus();
   }
-
 
   @override
   void dispose() {
@@ -60,8 +57,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
     await _speakMainMenuOptions();
   }
 
-
-  //The first song while opening the app main page
   Future<void> _speakMainMenuOptions() async {
     await flutterTts.setLanguage("en-US");
     await flutterTts.setSpeechRate(0.5);
@@ -71,37 +66,40 @@ class _MainPageState extends State<MainPage> with RouteAware {
 
     final message =
         "Welcome to the main menu. "
-        "Options are: Voice Command, Start Detection, TTS Settings, and Emergency Contact..."
-        "Choose one option..."
-        "And your Battery level is $batteryInfo. "
-        "with the Current connection used is $connectionInfo.";
+        "Options are: Voice Command, Start Detection, TTS Settings, and Emergency Contact. "
+        "Choose one option. "
+        "Your battery level is $batteryInfo. "
+        "The current connection is $connectionInfo.";
 
     await flutterTts.speak(message);
   }
 
-  void _toggleDetection() {
+  Future<void> _onVoiceCommand() async {
+    print("Voice command activated");
+    await flutterTts.speak("Voice command activated");
+  }
+
+  Future<void> _toggleDetection() async {
     setState(() {
       isDetectionOn = !isDetectionOn;
     });
 
-    final status = isDetectionOn ? 'started' : 'stopped';
-    print('Object detection $status');
+    final statusMessage = isDetectionOn ? "Detection started" : "Detection stopped";
+    print('Object detection $statusMessage');
+    await flutterTts.speak(statusMessage);
   }
 
-  void _onVoiceCommand() {
-    print("Voice command activated");
-  }
-
-  void _openTTSSettings() {
+  Future<void> _openTTSSettings() async {
+    await flutterTts.speak("Opening TTS settings");
     Navigator.pushNamed(context, '/tts-settings');
   }
 
-  void _emergencyCall() {
+  Future<void> _emergencyCall() async {
     print("Emergency call triggered");
+    await flutterTts.speak("Emergency contact opened");
     Navigator.pushNamed(context, '/emergency');
   }
 
-  //About the battery level
   Future<void> _getBatteryLevel() async {
     final level = await _battery.batteryLevel;
     setState(() {
@@ -109,7 +107,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
     });
   }
 
-  //About the connection
   Future<void> _getConnectionStatus() async {
     final result = await _connectivity.checkConnectivity();
     setState(() {
@@ -197,7 +194,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
                   child: Column(
                     children: [
                       Text("🔋 Battery: $_batteryLevel", style: TextStyle(color: Colors.white)),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Text("📶 Connection: $_connectionStatus", style: TextStyle(color: Colors.white)),
                     ],
                   ),
