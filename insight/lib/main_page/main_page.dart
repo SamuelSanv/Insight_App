@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'dart:async';
 
 
 final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
@@ -21,20 +22,27 @@ class _MainPageState extends State<MainPage> with RouteAware {
   bool _isRecording = false;
   final FlutterTts flutterTts = FlutterTts();
 
+  //Battery updates
   final Battery _battery = Battery();
   String _batteryLevel = "Loading...";
   String _connectionStatus = "Checking...";
   final Connectivity _connectivity = Connectivity();
+  Timer? _batteryTimer;
+  // StreamSubscription<BatteryState>? _batteryStateSubscription;
+  BatteryState? _lastBatteryState;
+  bool _isCheckingBattery = false;
+  bool _hasAnnouncedFullBattery = false;
 
   @override
   void initState() {
     super.initState();
     _initRecorder();
+    _startBatteryMonitoring();
+    _getConnectionStatus();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       routeObserver.subscribe(this, ModalRoute.of(context)!);
     });
-    _getBatteryLevel();
-    _getConnectionStatus();
   }
 
   Future<void> _initRecorder() async {
@@ -42,10 +50,11 @@ class _MainPageState extends State<MainPage> with RouteAware {
     await Permission.microphone.request();
   }
 
-
   @override
   void dispose() {
     _recorder.closeRecorder();
+    _batteryTimer?.cancel();
+    // _batteryStateSubscription?.cancel();
     routeObserver.unsubscribe(this);
     super.dispose();
   }
@@ -77,13 +86,66 @@ class _MainPageState extends State<MainPage> with RouteAware {
 
     final message =
         "Welcome to the main menu. "
-        "Options are: Voice Command, Start Detection, TTS Settings, and Emergency Contact. "
+        "Your Options are: "
+        "Voice Command, Start Detection, TTS Settings, and Emergency Contact. "
         "Choose one option. "
         "Your battery level is $batteryInfo. "
         "The current connection is $connectionInfo.";
 
     await flutterTts.speak(message);
   }
+
+  //Battery level and state monitoring
+  void _startBatteryMonitoring() {
+    _getBatteryLevel();
+
+    _batteryTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+      if (_isCheckingBattery) return;
+      _isCheckingBattery = true;
+
+      try {
+        print("⏱ Checking battery at ${DateTime.now()}");
+        await _getBatteryLevel();
+
+        final currentState = await _battery.batteryState;
+
+        if (_lastBatteryState != null && currentState != _lastBatteryState) {
+          _hasAnnouncedFullBattery = false; // reset on state change
+
+          switch (currentState) {
+            case BatteryState.charging:
+              await flutterTts.speak("Battery is now charging.");
+              break;
+            case BatteryState.discharging:
+              await flutterTts.speak("Battery is discharging.");
+              break;
+            case BatteryState.full:
+              if (!_hasAnnouncedFullBattery) {
+                await flutterTts.speak("Battery is full.");
+                _hasAnnouncedFullBattery = true;
+              }
+              break;
+            case BatteryState.unknown:
+              break;
+            case BatteryState.connectedNotCharging:
+                // TODO: Handle this case.
+                throw UnimplementedError();
+          }
+        } else if (currentState == BatteryState.full && !_hasAnnouncedFullBattery) {
+          // When still full but not yet announced
+          await flutterTts.speak("Battery is full.");
+          _hasAnnouncedFullBattery = true;
+        }
+
+        _lastBatteryState = currentState;
+      } catch (e) {
+        print("Battery monitoring error: $e");
+      } finally {
+        _isCheckingBattery = false;
+      }
+    });
+  }
+
 
   //Request the mic permission
   Future<bool> _requestMicPermission() async {
@@ -114,8 +176,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
-
-
   //Method of the Voice command button
   Future<void> _onVoiceCommand() async {
     final granted = await _requestMicPermission();
@@ -142,10 +202,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
         _isRecording = false;
       });
       print('Recording saved at: $path');
-      await flutterTts.speak("Voice command activated");
+      await flutterTts.speak("Recording stopped...");
     }
   }
-
 
   //Method of the Detection button
   Future<void> _toggleDetection() async {
@@ -219,7 +278,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
             children: [
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue,
+                  backgroundColor: _isRecording ? Colors.redAccent : Colors.blue,
                   minimumSize: const Size.fromHeight(60),
                 ),
                 onPressed: _onVoiceCommand,
