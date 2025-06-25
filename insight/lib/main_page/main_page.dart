@@ -28,16 +28,19 @@ class _MainPageState extends State<MainPage> with RouteAware {
   String _connectionStatus = "Checking...";
   final Connectivity _connectivity = Connectivity();
   Timer? _batteryTimer;
+  Timer? _lowBattery;
   // StreamSubscription<BatteryState>? _batteryStateSubscription;
-  BatteryState? _lastBatteryState;
   bool _isCheckingBattery = false;
+  bool _isCheckingBatteryLevel = false;
   bool _hasAnnouncedFullBattery = false;
+  bool _hasAnnouncedCharging = false;
 
   @override
   void initState() {
     super.initState();
     _initRecorder();
     _startBatteryMonitoring();
+    _startBatteryLowMonitoring();
     _getConnectionStatus();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -54,6 +57,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
   void dispose() {
     _recorder.closeRecorder();
     _batteryTimer?.cancel();
+    _lowBattery?.cancel();
     // _batteryStateSubscription?.cancel();
     routeObserver.unsubscribe(this);
     super.dispose();
@@ -99,53 +103,70 @@ class _MainPageState extends State<MainPage> with RouteAware {
   void _startBatteryMonitoring() {
     _getBatteryLevel();
 
-    _batteryTimer = Timer.periodic(const Duration(seconds: 30), (_) async {
+    _batteryTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
+      // Check the state of the battery every second
       if (_isCheckingBattery) return;
-      _isCheckingBattery = true;
+        _isCheckingBattery = true;
 
-      try {
-        print("⏱ Checking battery at ${DateTime.now()}");
-        await _getBatteryLevel();
+        try {
+          print("⏱ Checking battery at ${DateTime.now()}"); // write every time the checking is done
+          await _getBatteryLevel();
 
-        final currentState = await _battery.batteryState;
+          final currentState = await _battery.batteryState;
 
-        if (_lastBatteryState != null && currentState != _lastBatteryState) {
-          _hasAnnouncedFullBattery = false; // reset on state change
-
-          switch (currentState) {
-            case BatteryState.charging:
-              await flutterTts.speak("Battery is now charging.");
-              break;
-            case BatteryState.discharging:
-              await flutterTts.speak("Battery is discharging.");
-              break;
-            case BatteryState.full:
-              if (!_hasAnnouncedFullBattery) {
-                await flutterTts.speak("Battery is full.");
-                _hasAnnouncedFullBattery = true;
-              }
-              break;
-            case BatteryState.unknown:
-              break;
-            case BatteryState.connectedNotCharging:
-                // TODO: Handle this case.
-                throw UnimplementedError();
+          // Check if the battery is full or not
+          if (currentState == BatteryState.full && !_hasAnnouncedFullBattery) {
+            await flutterTts.speak("Battery is full.");
+            _hasAnnouncedFullBattery = true;
+          } else if (currentState != BatteryState.full && _hasAnnouncedFullBattery) {
+            // When battery has already announced it is full
+            _hasAnnouncedFullBattery = false;
           }
-        } else if (currentState == BatteryState.full && !_hasAnnouncedFullBattery) {
-          // When still full but not yet announced
-          await flutterTts.speak("Battery is full.");
-          _hasAnnouncedFullBattery = true;
-        }
 
-        _lastBatteryState = currentState;
-      } catch (e) {
-        print("Battery monitoring error: $e");
-      } finally {
-        _isCheckingBattery = false;
-      }
+          //Check if the battery is plug in or unplug
+          if (currentState == BatteryState.charging && !_hasAnnouncedCharging) {
+            await flutterTts.speak("Battery is now charging.");
+            _hasAnnouncedCharging = true;
+          } else if (currentState != BatteryState.charging && _hasAnnouncedCharging) {
+            // When still charging but already announced
+            await flutterTts.speak("Charging stopped!.");
+            _hasAnnouncedCharging = false;
+          }
+        } catch (e) {
+          print("Battery monitoring error: $e");
+        } finally {
+          _isCheckingBattery = false;
+        }
     });
   }
 
+  // Battery level Monitoring
+  void _startBatteryLowMonitoring() {
+    _getBatteryLevel();
+
+    // Check if the battery is low every 30 seconds
+    _lowBattery = Timer.periodic(const Duration(seconds: 30), (_) async{
+      if (_isCheckingBatteryLevel) return;
+      _isCheckingBatteryLevel = true;
+
+      try{
+        print("⏱ Checking low battery at ${DateTime.now()}"); // write every time the checking is done
+        await _getBatteryLevel();
+
+        final currentState = await _battery.batteryState;
+        final level = await _battery.batteryLevel;
+
+        // Check if the battery level is at 15%
+        if (currentState != BatteryState.charging && level < 15) {
+          await flutterTts.speak("Battery is low... Please charge!!.");
+        }
+      } catch (e) {
+        print("Battery monitoring level error: $e");
+      } finally {
+        _isCheckingBatteryLevel = false;
+      }
+    });
+  }
 
   //Request the mic permission
   Future<bool> _requestMicPermission() async {
