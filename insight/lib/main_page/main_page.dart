@@ -1,8 +1,14 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:battery_plus/battery_plus.dart';
+import 'package:camera/camera.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter_sound/flutter_sound.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
 
@@ -18,9 +24,13 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> with RouteAware {
   bool isDetectionOn = false;
+  bool _isDetecting = false; //For the detection button
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   bool _isRecording = false;
   final FlutterTts flutterTts = FlutterTts();
+
+  CameraController? _cameraController;
+  final String serverUrl = 'https://your-detection-server.com/detect'; // 🌟 ADDED → replace with your backend URL
 
   //Battery updates
   final Battery _battery = Battery();
@@ -48,16 +58,12 @@ class _MainPageState extends State<MainPage> with RouteAware {
     });
   }
 
-  Future<void> _initRecorder() async {
-    await _recorder.openRecorder();
-    await Permission.microphone.request();
-  }
-
   @override
   void dispose() {
     _recorder.closeRecorder();
     _batteryTimer?.cancel();
     _lowBattery?.cancel();
+    _cameraController?.dispose();
     // _batteryStateSubscription?.cancel();
     routeObserver.unsubscribe(this);
     super.dispose();
@@ -81,6 +87,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
     await _speakMainMenuOptions();
   }
 
+  // TTS for the main page
   Future<void> _speakMainMenuOptions() async {
     await flutterTts.setLanguage("en-US");
     await flutterTts.setSpeechRate(0.5);
@@ -97,6 +104,48 @@ class _MainPageState extends State<MainPage> with RouteAware {
         "The current connection is $connectionInfo.";
 
     await flutterTts.speak(message);
+  }
+
+  // Camera initialization
+  Future<void> _initCamera() async {
+    final cameras = await availableCameras();
+    final backCamera = cameras.firstWhere(
+          (camera) => camera.lensDirection == CameraLensDirection.back,
+    );
+    _cameraController = CameraController(
+      backCamera,
+      ResolutionPreset.medium,
+      enableAudio: false,
+    );
+    await _cameraController?.initialize();
+  }
+
+  // Capture one frame
+  Future<File> _captureFrame() async {
+    final tempDir = await getTemporaryDirectory();
+    final filePath = p.join(tempDir.path, '${DateTime.now().millisecondsSinceEpoch}.jpg');
+    await _cameraController?.takePicture().then((file) => file.saveTo(filePath));
+    return File(filePath);
+  }
+
+  // Send frame to server
+  Future<String> _sendFrameToServer(File imageFile) async {
+    final request = http.MultipartRequest('POST', Uri.parse(serverUrl));
+    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+    final response = await request.send();
+    if (response.statusCode == 200) {
+      final respStr = await response.stream.bytesToString();
+      final data = jsonDecode(respStr);
+      return data['detected'] ?? 'Nothing detected';
+    } else {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+  }
+
+  //To init the Mic
+  Future<void> _initRecorder() async {
+    await _recorder.openRecorder();
+    await Permission.microphone.request();
   }
 
   //Battery level and state monitoring
@@ -229,13 +278,36 @@ class _MainPageState extends State<MainPage> with RouteAware {
 
   //Method of the Detection button
   Future<void> _toggleDetection() async {
-    setState(() {
-      isDetectionOn = !isDetectionOn;
-    });
+    if (_isDetecting) {
+      await flutterTts.speak("Detection is already running. Please wait.");
+      return;
+    }
 
-    final statusMessage = isDetectionOn ? "Detection started" : "Detection stopped";
-    print('Object detection $statusMessage');
-    await flutterTts.speak(statusMessage);
+    setState(() => isDetectionOn = !isDetectionOn);
+
+    if (isDetectionOn) {
+      _isDetecting = true;
+      await flutterTts.speak("Detection started.");
+
+      try {
+        await _initCamera();
+        final imageFile = await _captureFrame();
+        final result = await _sendFrameToServer(imageFile);
+        print('Detection result: $result');
+        await flutterTts.speak("Detected: $result");
+      } catch (e) {
+        print('Detection error: $e');
+        await flutterTts.speak("There was an error with detection.");
+      } finally {
+        await _cameraController?.dispose();
+        _cameraController = null;
+        _isDetecting = false;
+        setState(() => isDetectionOn = false);
+        await flutterTts.speak("Detection stopped.");
+      }
+    } else {
+      await flutterTts.speak("Detection stopped.");
+    }
   }
 
   //Method of the TTS Setting button

@@ -36,6 +36,10 @@ dependencies:
   flutter_sound: ^9.2.13+1
   permission_handler: ^11.3.1
   porcupine_flutter: ^3.0.4
+  camera: ^0.10.5+9
+  path_provider: ^2.1.2
+  path: ^1.8.3
+  http: ^1.2.0
 
 
   # The following adds the Cupertino Icons font to your application.
