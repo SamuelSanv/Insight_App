@@ -26,7 +26,7 @@ class InSightApp extends StatelessWidget {
         '/': (context) => const WelcomePage(),
         '/main': (context) => const MainPage(),
         '/tts-settings': (context) => const TTSSettingsPage(),
-        '/emergency' : (context) => const Emergency(),
+        '/emergency' : (context) => const EmergencyPage(),
       },
     );
   }
