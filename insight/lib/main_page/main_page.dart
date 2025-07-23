@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:async';
 import 'package:insight/system/settings_service.dart';
 import 'package:insight/system/server_settings_page.dart';
@@ -32,6 +33,12 @@ class _MainPageState extends State<MainPage> with RouteAware {
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   bool _isRecording = false;
   final FlutterTts flutterTts = FlutterTts();
+
+  // Speech to Text
+  final SpeechToText _speechToText = SpeechToText();
+  bool _speechEnabled = false;
+  bool _isListening = false;
+  String _recognizedWords = '';
 
   CameraController? _cameraController;
   String? _serverUrl;
@@ -67,6 +74,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
   Future<void> _initializeApp() async {
     try {
       await _initRecorder();
+      await _initSpeechToText();
       _startBatteryMonitoring();
       _startBatteryLowMonitoring();
       await _getConnectionStatus();
@@ -296,14 +304,16 @@ class _MainPageState extends State<MainPage> with RouteAware {
       // Create a simple GET request to check if server is alive
       final client = http.Client();
       final uri = Uri.parse(_serverUrl!);
-      
+
       // Try to ping the server with a simple GET request
-      final response = await client.get(uri).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Server health check timeout after 10 seconds');
-        },
-      );
+      final response = await client
+          .get(uri)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw Exception('Server health check timeout after 10 seconds');
+            },
+          );
 
       client.close();
 
@@ -431,6 +441,24 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
+  // Initialize speech to text
+  Future<void> _initSpeechToText() async {
+    try {
+      _speechEnabled = await _speechToText.initialize(
+        onError: (error) => print('Speech recognition error: $error'),
+        onStatus: (status) => print('Speech recognition status: $status'),
+      );
+
+      if (_speechEnabled) {
+        print('✅ Speech-to-text initialized successfully');
+      } else {
+        print('❌ Speech-to-text not available on this device');
+      }
+    } catch (e) {
+      _handleError('Failed to initialize speech-to-text', e);
+    }
+  }
+
   // Enhanced battery monitoring with error handling
   void _startBatteryMonitoring() {
     _safeExecute(() async {
@@ -522,9 +550,14 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
-  // Enhanced voice command with error handling
+  // Enhanced voice command with speech-to-text
   Future<void> _onVoiceCommand() async {
     await _safeExecute(() async {
+      if (!_speechEnabled) {
+        await _safeSpeak("Speech recognition is not available on this device.");
+        return;
+      }
+
       final granted = await _requestMicPermission();
       if (!granted) {
         await _safeSpeak(
@@ -533,38 +566,174 @@ class _MainPageState extends State<MainPage> with RouteAware {
         return;
       }
 
-      if (!_isRecording) {
+      if (!_isListening) {
+        // Start listening
+        setState(() {
+          _isListening = true;
+          _recognizedWords = '';
+        });
+
+        await _safeSpeak(
+          "Listening for your command. Say: start detection, stop detection, battery level, what do you see, emergency, or settings.",
+        );
+
         try {
-          await _recorder.startRecorder(
-            toFile: 'voice_command.wav',
-            codec: Codec.pcm16WAV,
+          await _speechToText.listen(
+            onResult: (result) {
+              setState(() {
+                _recognizedWords = result.recognizedWords;
+              });
+
+              // Process command when speech is finalized
+              if (result.finalResult) {
+                _processVoiceCommand(_recognizedWords);
+              }
+            },
+            listenFor: const Duration(seconds: 15),
+            pauseFor: const Duration(seconds: 2),
+            partialResults: true,
+            cancelOnError: true,
+            listenMode: ListenMode.confirmation,
           );
-          setState(() {
-            _isRecording = true;
-          });
-          await _safeSpeak("Recording started. Speak now.");
         } catch (e) {
           setState(() {
-            _isRecording = false;
+            _isListening = false;
           });
-          throw Exception('Failed to start recording: $e');
+          throw Exception('Failed to start speech recognition: $e');
         }
       } else {
-        try {
-          final path = await _recorder.stopRecorder();
-          setState(() {
-            _isRecording = false;
-          });
-          print('Recording saved at: $path');
-          await _safeSpeak("Recording stopped.");
-        } catch (e) {
-          setState(() {
-            _isRecording = false;
-          });
-          throw Exception('Failed to stop recording: $e');
-        }
+        // Stop listening
+        await _stopListening();
       }
     });
+  }
+
+  // Stop speech recognition
+  Future<void> _stopListening() async {
+    try {
+      await _speechToText.stop();
+      setState(() {
+        _isListening = false;
+      });
+      await _safeSpeak("Stopped listening.");
+    } catch (e) {
+      print('Error stopping speech recognition: $e');
+    }
+  }
+
+  // Process voice commands
+  Future<void> _processVoiceCommand(String command) async {
+    if (command.isEmpty) {
+      await _safeSpeak("I didn't hear any command. Please try again.");
+      return;
+    }
+
+    final lowerCommand = command.toLowerCase().trim();
+    print('🎤 Processing voice command: "$lowerCommand"');
+
+    setState(() {
+      _isListening = false;
+    });
+
+    // Process different commands
+    if (lowerCommand.contains('start detection') ||
+        lowerCommand.contains('begin detection') ||
+        lowerCommand.contains('start scanning')) {
+      await _safeSpeak("Starting detection.");
+      if (!isDetectionOn) {
+        await _toggleDetection();
+      } else {
+        await _safeSpeak("Detection is already running.");
+      }
+    } else if (lowerCommand.contains('stop detection') ||
+        lowerCommand.contains('end detection') ||
+        lowerCommand.contains('stop scanning')) {
+      await _safeSpeak("Stopping detection.");
+      if (isDetectionOn) {
+        await _toggleDetection();
+      } else {
+        await _safeSpeak("Detection is not running.");
+      }
+    } else if (lowerCommand.contains('battery level') ||
+        lowerCommand.contains('battery status') ||
+        lowerCommand.contains('how much battery')) {
+      await _safeSpeak("Battery level is $_batteryLevel");
+    } else if (lowerCommand.contains('connection status') ||
+        lowerCommand.contains('network status') ||
+        lowerCommand.contains('internet connection')) {
+      await _safeSpeak("Connection status is $_connectionStatus");
+    } else if (lowerCommand.contains('what do you see') ||
+        lowerCommand.contains('scan now') ||
+        lowerCommand.contains('detect now')) {
+      await _safeSpeak("Scanning environment now.");
+      // Perform a single detection
+      if (!isDetectionOn) {
+        await _performVoiceDetection();
+      } else {
+        await _safeSpeak("Detection is already running continuously.");
+      }
+    } else if (lowerCommand.contains('emergency') ||
+        lowerCommand.contains('help') ||
+        lowerCommand.contains('call emergency')) {
+      await _safeSpeak("Opening emergency contacts.");
+      await _emergencyCall();
+    } else if (lowerCommand.contains('settings') ||
+        lowerCommand.contains('server settings') ||
+        lowerCommand.contains('configure server')) {
+      await _safeSpeak("Opening server settings.");
+      await _openServerSettings();
+    } else if (lowerCommand.contains('speech settings') ||
+        lowerCommand.contains('voice settings') ||
+        lowerCommand.contains('tts settings')) {
+      await _safeSpeak("Opening speech settings.");
+      await _openTTSSettings();
+    } else if (lowerCommand.contains('help') ||
+        lowerCommand.contains('commands') ||
+        lowerCommand.contains('what can you do') ||
+        lowerCommand.contains('list commands')) {
+      await _safeSpeak(
+        "Available voice commands: start detection, stop detection, battery level, what do you see, emergency, settings, and help. Say any of these commands to interact with the app.",
+      );
+    } else {
+      await _safeSpeak(
+        "I didn't understand that command. Say 'help' to hear all available commands, or try: start detection, stop detection, battery level, what do you see, emergency, or settings.",
+      );
+    }
+  }
+
+  // Perform a single detection (for voice command)
+  Future<void> _performVoiceDetection() async {
+    try {
+      // Initialize camera if not already done
+      if (!_isCameraInitialized) {
+        await _initCamera();
+        _isCameraInitialized = true;
+      }
+
+      // Capture and analyze
+      final imageData = await _captureFrame();
+      final result = await _sendFrameToServer(imageData);
+
+      if (result != "No objects detected nearby." &&
+          result != "Nothing detected" &&
+          result.isNotEmpty) {
+        await _safeSpeak("I can see: $result");
+      } else {
+        await _safeSpeak("I don't see any objects nearby.");
+      }
+
+      // Clean up
+      try {
+        await imageData.delete();
+      } catch (e) {
+        print('⚠️ Failed to delete temp file: $e');
+      }
+    } catch (e) {
+      await _safeSpeak(
+        "Sorry, I couldn't scan the environment right now. Please check your camera and server settings.",
+      );
+      print('Single detection error: $e');
+    }
   }
 
   // Enhanced detection toggle with comprehensive error handling
@@ -586,7 +755,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
       if (!isDetectionOn) {
         // Before starting detection, check server health
         await _safeSpeak("Checking server connection...");
-        
+
         final isServerHealthy = await _checkServerHealth();
         if (!isServerHealthy) {
           await _safeSpeak(
@@ -594,7 +763,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
           );
           return;
         }
-        
+
         await _safeSpeak("Server connection verified. Starting detection...");
       }
 
@@ -831,14 +1000,14 @@ class _MainPageState extends State<MainPage> with RouteAware {
               // Voice Command Button
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _isRecording
+                  backgroundColor: _isListening
                       ? Colors.redAccent
                       : Colors.blue,
                   minimumSize: const Size.fromHeight(60),
                 ),
                 onPressed: _onVoiceCommand,
-                icon: const Icon(Icons.mic),
-                label: Text(_isRecording ? 'Stop Recording' : 'Voice Command'),
+                icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
+                label: Text(_isListening ? 'Listening...' : 'Voice Command'),
               ),
               const SizedBox(height: 20),
 
@@ -908,6 +1077,27 @@ class _MainPageState extends State<MainPage> with RouteAware {
                         "📶 Connection: $_connectionStatus",
                         style: const TextStyle(color: Colors.white),
                       ),
+                      // Show speech recognition status
+                      if (_isListening) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          "🎤 Listening...",
+                          style: const TextStyle(color: Colors.green),
+                        ),
+                        if (_recognizedWords.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            "\"$_recognizedWords\"",
+                            style: const TextStyle(
+                              color: Colors.lightBlue,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ],
                       // Show last error if any
                       if (_lastError != null) ...[
                         const SizedBox(height: 8),

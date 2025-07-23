@@ -64,13 +64,15 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
     try {
       final client = http.Client();
       final uri = Uri.parse(url);
-      
-      final response = await client.get(uri).timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {
-          throw Exception('Connection timeout after 10 seconds');
-        },
-      );
+
+      final response = await client
+          .get(uri)
+          .timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw Exception('Connection timeout after 10 seconds');
+            },
+          );
 
       client.close();
 
@@ -79,7 +81,9 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       if (response.statusCode >= 200 && response.statusCode < 500) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Server is responding (Status: ${response.statusCode})'),
+            content: Text(
+              '✅ Server is responding (Status: ${response.statusCode})',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -117,77 +121,83 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Server Settings'),
-      ),
+      appBar: AppBar(title: const Text('Server Settings')),
       body: _isLoading
-        ? const Center(child: CircularProgressIndicator())
-        : SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Configure Server URL',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _serverUrlController,
-                  decoration: const InputDecoration(
-                    labelText: 'Server URL',
-                    hintText: 'https://example.com',
-                    border: OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.url,
-                  validator: (value) {
-                    if (value == null || value.isEmpty) {
-                      return 'Please enter server URL';
-                    }
-                    // Very basic URL validation
-                    if (!value.startsWith('http://') && !value.startsWith('https://')) {
-                      return 'URL must start with http:// or https://';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                Row(
+          ? const Center(child: CircularProgressIndicator())
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _isTestingConnection ? null : _testServerConnection,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          backgroundColor: Colors.blue,
-                        ),
-                        child: _isTestingConnection
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Test Connection'),
+                    const Text(
+                      'Configure Server URL',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: _saveServerUrl,
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                        ),
-                        child: const Text('Save Server URL'),
+                    const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _serverUrlController,
+                      decoration: const InputDecoration(
+                        labelText: 'Server URL',
+                        hintText: 'https://example.com',
+                        border: OutlineInputBorder(),
                       ),
+                      keyboardType: TextInputType.url,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter server URL';
+                        }
+                        // Very basic URL validation
+                        if (!value.startsWith('http://') &&
+                            !value.startsWith('https://')) {
+                          return 'URL must start with http:// or https://';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _isTestingConnection
+                                ? null
+                                : _testServerConnection,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              backgroundColor: Colors.blue,
+                            ),
+                            child: _isTestingConnection
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Test Connection'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: _saveServerUrl,
+                            style: ElevatedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text('Save Server URL'),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
     );
   }
 }
