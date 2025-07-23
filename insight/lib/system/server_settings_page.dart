@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:insight/system/settings_service.dart';
+import 'package:http/http.dart' as http;
 
 class ServerSettingsPage extends StatefulWidget {
   const ServerSettingsPage({Key? key}) : super(key: key);
@@ -12,6 +13,7 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
   final _formKey = GlobalKey<FormState>();
   final _serverUrlController = TextEditingController();
   bool _isLoading = true;
+  bool _isTestingConnection = false;
 
   @override
   void initState() {
@@ -43,6 +45,66 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Server URL saved successfully')),
       );
+    }
+  }
+
+  Future<void> _testServerConnection() async {
+    final url = _serverUrlController.text.trim();
+    if (url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a server URL first')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isTestingConnection = true;
+    });
+
+    try {
+      final client = http.Client();
+      final uri = Uri.parse(url);
+      
+      final response = await client.get(uri).timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {
+          throw Exception('Connection timeout after 10 seconds');
+        },
+      );
+
+      client.close();
+
+      if (!mounted) return;
+
+      if (response.statusCode >= 200 && response.statusCode < 500) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Server is responding (Status: ${response.statusCode})'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Server error (Status: ${response.statusCode})'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Connection failed: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isTestingConnection = false;
+        });
+      }
     }
   }
 
@@ -91,13 +153,36 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
                     return null;
                   },
                 ),
-                const SizedBox(height: 24),
-                ElevatedButton(
-                  onPressed: _saveServerUrl,
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  child: const Text('Save Server URL'),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isTestingConnection ? null : _testServerConnection,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          backgroundColor: Colors.blue,
+                        ),
+                        child: _isTestingConnection
+                            ? const SizedBox(
+                                height: 20,
+                                width: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Text('Test Connection'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _saveServerUrl,
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        child: const Text('Save Server URL'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
