@@ -60,10 +60,12 @@ class _MainPageState extends State<MainPage> with RouteAware {
   bool _hasAnnouncedFullBattery = false;
   bool _hasAnnouncedCharging = false;
 
-  // Error handling
-  String? _lastError;
+  // Session and error tracking
   int _consecutiveErrors = 0;
-  static const int _maxConsecutiveErrors = 3;
+  static const int _maxConsecutiveErrors = 5;
+  String? _lastError;
+  bool _hasAnnouncedOptionsThisSession = false;
+  bool _isTtsSpeaking = false;
 
   @override
   void initState() {
@@ -75,6 +77,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
     try {
       await _initRecorder();
       await _initSpeechToText();
+      await _initTTS();
       _startBatteryMonitoring();
       _startBatteryLowMonitoring();
       await _getConnectionStatus();
@@ -98,6 +101,12 @@ class _MainPageState extends State<MainPage> with RouteAware {
       _recorder.closeRecorder();
     } catch (e) {
       print('Error closing recorder: $e');
+    }
+
+    try {
+      flutterTts.stop();
+    } catch (e) {
+      print('Error stopping TTS: $e');
     }
 
     _batteryTimer?.cancel();
@@ -129,6 +138,8 @@ class _MainPageState extends State<MainPage> with RouteAware {
 
   @override
   void didPopNext() {
+    // Reset session state when returning to main page
+    _hasAnnouncedOptionsThisSession = false;
     _safeExecute(() async {
       await _speakMainMenuOptions();
       await _refreshStatusAndSpeak();
@@ -160,13 +171,73 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
-  // Safe TTS wrapper
+  // Safe TTS wrapper with completion tracking
   Future<void> _safeSpeak(String message) async {
     try {
+      setState(() {
+        _isTtsSpeaking = true;
+      });
       await flutterTts.speak(message);
+
+      // Wait for TTS to complete
+      await _waitForTtsCompletion();
+
+      setState(() {
+        _isTtsSpeaking = false;
+      });
     } catch (e) {
       print('TTS error: $e');
+      setState(() {
+        _isTtsSpeaking = false;
+      });
     }
+  }
+
+  // Initialize TTS with completion callbacks
+  Future<void> _initTTS() async {
+    try {
+      await flutterTts.setLanguage("en-US");
+      await flutterTts.setSpeechRate(0.8);
+      await flutterTts.setVolume(1.0);
+      await flutterTts.setPitch(1.0);
+
+      flutterTts.setStartHandler(() {
+        setState(() {
+          _isTtsSpeaking = true;
+        });
+      });
+
+      flutterTts.setCompletionHandler(() {
+        setState(() {
+          _isTtsSpeaking = false;
+        });
+      });
+
+      flutterTts.setErrorHandler((msg) {
+        print('TTS Error: $msg');
+        setState(() {
+          _isTtsSpeaking = false;
+        });
+      });
+
+      print('✅ TTS initialized with completion tracking');
+    } catch (e) {
+      print('❌ Failed to initialize TTS: $e');
+    }
+  }
+
+  // Wait for TTS to complete speaking
+  Future<void> _waitForTtsCompletion() async {
+    int attempts = 0;
+    const maxAttempts = 50; // 5 seconds max wait
+
+    while (_isTtsSpeaking && attempts < maxAttempts) {
+      await Future.delayed(const Duration(milliseconds: 100));
+      attempts++;
+    }
+
+    // Add extra buffer time to ensure audio has finished
+    await Future.delayed(const Duration(milliseconds: 500));
   }
 
   Future<void> _refreshStatusAndSpeak() async {
@@ -177,7 +248,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
     });
   }
 
-  // TTS for the main page with error handling
+  // TTS for the main page with error handling and session tracking
   Future<void> _speakMainMenuOptions() async {
     try {
       await flutterTts.setLanguage("en-US");
@@ -188,13 +259,24 @@ class _MainPageState extends State<MainPage> with RouteAware {
           ? _connectionStatus
           : "unknown";
 
-      final message =
-          "Welcome to the main menu. "
-          "Your Options are: "
-          "Voice Command, Start Detection, TTS Settings, and Emergency Contact. "
-          "Choose one option. "
-          "Your battery level is $batteryInfo. "
-          "The current connection is $connectionInfo.";
+      String message;
+      if (!_hasAnnouncedOptionsThisSession) {
+        // First time - announce full options
+        message =
+            "Welcome to the main menu. "
+            "Your Options are: "
+            "Voice Command, Start Detection, TTS Settings, and Emergency Contact. "
+            "Choose one option. "
+            "Your battery level is $batteryInfo. "
+            "The current connection is $connectionInfo.";
+        _hasAnnouncedOptionsThisSession = true;
+      } else {
+        // Subsequent times - just announce status
+        message =
+            "Main menu. "
+            "Battery level is $batteryInfo. "
+            "Connection is $connectionInfo.";
+      }
 
       await flutterTts.speak(message);
     } catch (e) {
@@ -577,9 +659,15 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
-  // Enhanced voice command with speech-to-text
+  // Enhanced voice command with speech-to-text and TTS synchronization
   Future<void> _onVoiceCommand() async {
     await _safeExecute(() async {
+      // Don't start voice command if TTS is currently speaking
+      if (_isTtsSpeaking) {
+        print('⚠️ Voice command blocked - TTS is currently speaking');
+        return;
+      }
+
       if (!_speechEnabled) {
         await _safeSpeak(
           "Speech recognition is not available on this device. Please check your microphone permissions and internet connection.",
@@ -602,12 +690,20 @@ class _MainPageState extends State<MainPage> with RouteAware {
           _recognizedWords = '';
         });
 
-        await _safeSpeak(
-          "Listening for your command. Say: start detection, stop detection, battery level, what do you see, emergency, or settings.",
-        );
+        // Only announce commands if not announced this session
+        if (!_hasAnnouncedOptionsThisSession) {
+          await _safeSpeak(
+            "Voice commands available: start detection, stop detection, battery level, what do you see, emergency, or settings.",
+          );
+        } else {
+          await _safeSpeak("Listening for your command.");
+        }
 
-        // Add a small delay after TTS to avoid interference
-        await Future.delayed(const Duration(milliseconds: 500));
+        // Wait for TTS to complete before starting speech recognition
+        await _waitForTtsCompletion();
+
+        // Additional buffer time to ensure microphone doesn't pick up TTS
+        await Future.delayed(const Duration(milliseconds: 1000));
 
         try {
           await _speechToText.listen(
@@ -782,8 +878,11 @@ class _MainPageState extends State<MainPage> with RouteAware {
       );
     }
 
-    // Add a small delay before potentially starting to listen again
-    await Future.delayed(const Duration(milliseconds: 500));
+    // Wait for TTS completion before allowing new commands
+    await _waitForTtsCompletion();
+
+    // Add additional delay to prevent immediate re-triggering
+    await Future.delayed(const Duration(milliseconds: 1000));
   }
 
   // Perform a single detection (for voice command)
@@ -1072,32 +1171,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
-  // Show additional features menu
-  void _showFeatureMenu() {
-    showModalBottomSheet(
-      context: context,
-      builder: (BuildContext context) {
-        return Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Additional Features',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[800],
-                ),
-              ),
-              const SizedBox(height: 16),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1105,13 +1178,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
       appBar: AppBar(
         title: const Text('InSight Control'),
         backgroundColor: Colors.black,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: _showFeatureMenu,
-            tooltip: 'Additional Features',
-          ),
-        ],
       ),
       body: SafeArea(
         child: Padding(
