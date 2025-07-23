@@ -11,9 +11,11 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:async';
+import 'package:insight/system/settings_service.dart';
+import 'package:insight/system/server_settings_page.dart';
 
-
-final RouteObserver<ModalRoute<void>> routeObserver = RouteObserver<ModalRoute<void>>();
+final RouteObserver<ModalRoute<void>> routeObserver =
+    RouteObserver<ModalRoute<void>>();
 
 class MainPage extends StatefulWidget {
   const MainPage({super.key});
@@ -30,7 +32,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
   final FlutterTts flutterTts = FlutterTts();
 
   CameraController? _cameraController;
-  final String serverUrl = 'https://your-detection-server.com/detect'; // 🌟 ADDED → replace with your backend URL
+  String? _serverUrl;
 
   //Battery updates
   final Battery _battery = Battery();
@@ -52,6 +54,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
     _startBatteryMonitoring();
     _startBatteryLowMonitoring();
     _getConnectionStatus();
+    _loadServerUrl(); // Load server URL from settings
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       routeObserver.subscribe(this, ModalRoute.of(context)!);
@@ -93,7 +96,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
     await flutterTts.setSpeechRate(0.5);
 
     final batteryInfo = _batteryLevel.isNotEmpty ? _batteryLevel : "unknown";
-    final connectionInfo = _connectionStatus.isNotEmpty ? _connectionStatus : "unknown";
+    final connectionInfo = _connectionStatus.isNotEmpty
+        ? _connectionStatus
+        : "unknown";
 
     final message =
         "Welcome to the main menu. "
@@ -108,37 +113,123 @@ class _MainPageState extends State<MainPage> with RouteAware {
 
   // Camera initialization
   Future<void> _initCamera() async {
-    final cameras = await availableCameras();
-    final backCamera = cameras.firstWhere(
+    try {
+      print('📷 Getting available cameras...');
+      final cameras = await availableCameras();
+
+      if (cameras.isEmpty) {
+        throw Exception('No cameras available on this device');
+      }
+
+      // Find back camera
+      CameraDescription? backCamera;
+      try {
+        backCamera = cameras.firstWhere(
           (camera) => camera.lensDirection == CameraLensDirection.back,
-    );
-    _cameraController = CameraController(
-      backCamera,
-      ResolutionPreset.medium,
-      enableAudio: false,
-    );
-    await _cameraController?.initialize();
+        );
+      } catch (e) {
+        // If no back camera, use the first available camera
+        backCamera = cameras.first;
+        print('⚠️ No back camera found, using: ${backCamera.name}');
+      }
+
+      print('📷 Initializing camera: ${backCamera.name}');
+      _cameraController = CameraController(
+        backCamera,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+
+      await _cameraController?.initialize();
+      print('✅ Camera initialized successfully');
+    } catch (e) {
+      print('❌ Camera initialization failed: $e');
+      throw Exception('Failed to initialize camera: $e');
+    }
   }
 
   // Capture one frame
   Future<File> _captureFrame() async {
-    final tempDir = await getTemporaryDirectory();
-    final filePath = p.join(tempDir.path, '${DateTime.now().millisecondsSinceEpoch}.jpg');
-    await _cameraController?.takePicture().then((file) => file.saveTo(filePath));
-    return File(filePath);
+    try {
+      if (_cameraController == null ||
+          !_cameraController!.value.isInitialized) {
+        throw Exception('Camera not initialized');
+      }
+
+      print('📸 Taking picture...');
+      final XFile picture = await _cameraController!.takePicture();
+
+      // Create a proper file path
+      final tempDir = await getTemporaryDirectory();
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final filePath = p.join(tempDir.path, fileName);
+
+      // Copy the XFile to our target location
+      final File imageFile = File(filePath);
+      await imageFile.writeAsBytes(await picture.readAsBytes());
+
+      print('✅ Picture saved to: $filePath');
+      return imageFile;
+    } catch (e) {
+      print('❌ Failed to capture frame: $e');
+      throw Exception('Failed to capture image: $e');
+    }
   }
 
   // Send frame to server
   Future<String> _sendFrameToServer(File imageFile) async {
-    final request = http.MultipartRequest('POST', Uri.parse(serverUrl));
-    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
-    final response = await request.send();
-    if (response.statusCode == 200) {
-      final respStr = await response.stream.bytesToString();
-      final data = jsonDecode(respStr);
-      return data['detected'] ?? 'Nothing detected';
-    } else {
-      throw Exception('Server error: ${response.statusCode}');
+    try {
+      print('📸 Sending image to server: $_serverUrl');
+      print('📁 Image file size: ${await imageFile.length()} bytes');
+
+      // Create multipart request to root endpoint
+      final request = http.MultipartRequest('POST', Uri.parse(_serverUrl!));
+
+      // Add the image file
+      request.files.add(
+        await http.MultipartFile.fromPath('file', imageFile.path),
+      );
+
+      print('🚀 Sending request...');
+      final response = await request.send();
+
+      print('📡 Response status: ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        final respStr = await response.stream.bytesToString();
+        print('✅ Response body: $respStr');
+
+        try {
+          final data = jsonDecode(respStr);
+
+          // Handle both 'detected' and 'announcement' fields
+          String result =
+              data['detected'] ?? data['announcement'] ?? 'Nothing detected';
+
+          print('🎯 Detection result: $result');
+          return result;
+        } catch (e) {
+          print('❌ JSON decode error: $e');
+          print('Raw response: $respStr');
+          return 'Server response format error';
+        }
+      } else {
+        final errorStr = await response.stream.bytesToString();
+        print('❌ Server error (${response.statusCode}): $errorStr');
+
+        // Try to parse error response
+        try {
+          final errorData = jsonDecode(errorStr);
+          return errorData['detected'] ??
+              errorData['error'] ??
+              'Server error ${response.statusCode}';
+        } catch (e) {
+          return 'Server error: ${response.statusCode}';
+        }
+      }
+    } catch (e) {
+      print('💥 Network/Request error: $e');
+      return 'Connection error: ${e.toString()}';
     }
   }
 
@@ -155,37 +246,41 @@ class _MainPageState extends State<MainPage> with RouteAware {
     _batteryTimer = Timer.periodic(const Duration(seconds: 1), (_) async {
       // Check the state of the battery every second
       if (_isCheckingBattery) return;
-        _isCheckingBattery = true;
+      _isCheckingBattery = true;
 
-        try {
-          print("⏱ Checking battery at ${DateTime.now()}"); // write every time the checking is done
-          await _getBatteryLevel();
+      try {
+        print(
+          "⏱ Checking battery at ${DateTime.now()}",
+        ); // write every time the checking is done
+        await _getBatteryLevel();
 
-          final currentState = await _battery.batteryState;
+        final currentState = await _battery.batteryState;
 
-          // Check if the battery is full or not
-          if (currentState == BatteryState.full && !_hasAnnouncedFullBattery) {
-            await flutterTts.speak("Battery is full.");
-            _hasAnnouncedFullBattery = true;
-          } else if (currentState != BatteryState.full && _hasAnnouncedFullBattery) {
-            // When battery has already announced it is full
-            _hasAnnouncedFullBattery = false;
-          }
-
-          //Check if the battery is plug in or unplug
-          if (currentState == BatteryState.charging && !_hasAnnouncedCharging) {
-            await flutterTts.speak("Battery is now charging.");
-            _hasAnnouncedCharging = true;
-          } else if (currentState != BatteryState.charging && _hasAnnouncedCharging) {
-            // When still charging but already announced
-            await flutterTts.speak("Charging stopped!.");
-            _hasAnnouncedCharging = false;
-          }
-        } catch (e) {
-          print("Battery monitoring error: $e");
-        } finally {
-          _isCheckingBattery = false;
+        // Check if the battery is full or not
+        if (currentState == BatteryState.full && !_hasAnnouncedFullBattery) {
+          await flutterTts.speak("Battery is full.");
+          _hasAnnouncedFullBattery = true;
+        } else if (currentState != BatteryState.full &&
+            _hasAnnouncedFullBattery) {
+          // When battery has already announced it is full
+          _hasAnnouncedFullBattery = false;
         }
+
+        //Check if the battery is plug in or unplug
+        if (currentState == BatteryState.charging && !_hasAnnouncedCharging) {
+          await flutterTts.speak("Battery is now charging.");
+          _hasAnnouncedCharging = true;
+        } else if (currentState != BatteryState.charging &&
+            _hasAnnouncedCharging) {
+          // When still charging but already announced
+          await flutterTts.speak("Charging stopped!.");
+          _hasAnnouncedCharging = false;
+        }
+      } catch (e) {
+        print("Battery monitoring error: $e");
+      } finally {
+        _isCheckingBattery = false;
+      }
     });
   }
 
@@ -194,12 +289,14 @@ class _MainPageState extends State<MainPage> with RouteAware {
     _getBatteryLevel();
 
     // Check if the battery is low every 30 seconds
-    _lowBattery = Timer.periodic(const Duration(seconds: 30), (_) async{
+    _lowBattery = Timer.periodic(const Duration(seconds: 30), (_) async {
       if (_isCheckingBatteryLevel) return;
       _isCheckingBatteryLevel = true;
 
-      try{
-        print("⏱ Checking low battery at ${DateTime.now()}"); // write every time the checking is done
+      try {
+        print(
+          "⏱ Checking low battery at ${DateTime.now()}",
+        ); // write every time the checking is done
         await _getBatteryLevel();
 
         final currentState = await _battery.batteryState;
@@ -233,7 +330,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
 
       if (status.isPermanentlyDenied) {
         // You can optionally open settings here
-        await flutterTts.speak("Microphone permission is permanently denied. Please enable it in system settings.");
+        await flutterTts.speak(
+          "Microphone permission is permanently denied. Please enable it in system settings.",
+        );
         openAppSettings(); // opens app settings screen
         return false;
       }
@@ -250,7 +349,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
   Future<void> _onVoiceCommand() async {
     final granted = await _requestMicPermission();
     if (!granted) {
-      await flutterTts.speak("Microphone permission is denied. Please enable it in settings.");
+      await flutterTts.speak(
+        "Microphone permission is denied. Please enable it in settings.",
+      );
       if (await Permission.microphone.isPermanentlyDenied) {
         await openAppSettings(); // Opens device settings for your app
       }
@@ -283,27 +384,69 @@ class _MainPageState extends State<MainPage> with RouteAware {
       return;
     }
 
+    // Check if server URL is configured
+    if (_serverUrl == null || _serverUrl!.isEmpty) {
+      await flutterTts.speak(
+        "Server URL not configured. Please check server settings.",
+      );
+      return;
+    }
+
+    print('🔄 Starting detection process...');
     setState(() => isDetectionOn = !isDetectionOn);
 
     if (isDetectionOn) {
       _isDetecting = true;
-      await flutterTts.speak("Detection started.");
+      await flutterTts.speak("Starting detection...");
 
       try {
+        print('📷 Initializing camera...');
         await _initCamera();
+
+        print('📸 Capturing frame...');
         final imageFile = await _captureFrame();
+
+        print('🔍 Processing with server...');
         final result = await _sendFrameToServer(imageFile);
-        print('Detection result: $result');
-        await flutterTts.speak("Detected: $result");
+
+        print('🎉 Detection completed: $result');
+        await flutterTts.speak("Detection result: $result");
+
+        // Clean up the temporary image file
+        try {
+          await imageFile.delete();
+          print('🗑️ Temporary image file cleaned up');
+        } catch (e) {
+          print('⚠️ Failed to delete temp file: $e');
+        }
       } catch (e) {
-        print('Detection error: $e');
-        await flutterTts.speak("There was an error with detection.");
+        print('💥 Detection error: $e');
+        String errorMessage;
+
+        if (e.toString().contains('Connection')) {
+          errorMessage =
+              "Cannot connect to server. Check your network and server settings.";
+        } else if (e.toString().contains('Camera')) {
+          errorMessage = "Camera error. Please check camera permissions.";
+        } else {
+          errorMessage = "Detection failed. Please try again.";
+        }
+
+        await flutterTts.speak(errorMessage);
       } finally {
-        await _cameraController?.dispose();
-        _cameraController = null;
+        // Clean up camera and reset state
+        try {
+          await _cameraController?.dispose();
+          _cameraController = null;
+          print('📷 Camera disposed');
+        } catch (e) {
+          print('⚠️ Error disposing camera: $e');
+        }
+
         _isDetecting = false;
         setState(() => isDetectionOn = false);
         await flutterTts.speak("Detection stopped.");
+        print('✅ Detection process completed');
       }
     } else {
       await flutterTts.speak("Detection stopped.");
@@ -339,6 +482,26 @@ class _MainPageState extends State<MainPage> with RouteAware {
     });
   }
 
+  // Load server URL from settings
+  Future<void> _loadServerUrl() async {
+    final url = await SettingsService.getServerUrl();
+    setState(() {
+      _serverUrl = url;
+    });
+  }
+
+  // Method to open server settings page
+  Future<void> _openServerSettings() async {
+    await flutterTts.speak("Opening server settings");
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const ServerSettingsPage()),
+    );
+
+    // Reload server URL when returning from settings page
+    await _loadServerUrl();
+  }
+
   // Get the status label for the connection
   String _getReadableStatus(ConnectivityResult result) {
     switch (result) {
@@ -371,7 +534,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
             children: [
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _isRecording ? Colors.redAccent : Colors.blue,
+                  backgroundColor: _isRecording
+                      ? Colors.redAccent
+                      : Colors.blue,
                   minimumSize: const Size.fromHeight(60),
                 ),
                 onPressed: _onVoiceCommand,
@@ -387,7 +552,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
                 ),
                 onPressed: _toggleDetection,
                 icon: Icon(isDetectionOn ? Icons.stop : Icons.play_arrow),
-                label: Text(isDetectionOn ? 'Stop Detection' : 'Start Detection'),
+                label: Text(
+                  isDetectionOn ? 'Stop Detection' : 'Start Detection',
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -411,6 +578,17 @@ class _MainPageState extends State<MainPage> with RouteAware {
                 icon: const Icon(Icons.warning),
                 label: const Text('Emergency Contact'),
               ),
+              const SizedBox(height: 20),
+
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  minimumSize: const Size.fromHeight(60),
+                ),
+                onPressed: _openServerSettings,
+                icon: const Icon(Icons.settings),
+                label: const Text('Server Settings'),
+              ),
               const Spacer(),
 
               Card(
@@ -419,9 +597,15 @@ class _MainPageState extends State<MainPage> with RouteAware {
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      Text("🔋 Battery: $_batteryLevel", style: TextStyle(color: Colors.white)),
+                      Text(
+                        "🔋 Battery: $_batteryLevel",
+                        style: TextStyle(color: Colors.white),
+                      ),
                       const SizedBox(height: 8),
-                      Text("📶 Connection: $_connectionStatus", style: TextStyle(color: Colors.white)),
+                      Text(
+                        "📶 Connection: $_connectionStatus",
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ],
                   ),
                 ),
