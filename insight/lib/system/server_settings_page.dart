@@ -168,7 +168,8 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
                                 ? null
                                 : _testServerConnection,
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              minimumSize: const Size.fromHeight(60),
                               backgroundColor: Colors.blue,
                             ),
                             child: _isTestingConnection
@@ -187,7 +188,8 @@ class _ServerSettingsPageState extends State<ServerSettingsPage> {
                           child: ElevatedButton(
                             onPressed: _saveServerUrl,
                             style: ElevatedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              minimumSize: const Size.fromHeight(60),
                             ),
                             child: const Text('Save Server URL'),
                           ),

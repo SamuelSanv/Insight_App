@@ -38,7 +38,8 @@ class _EmergencyPageState extends State<EmergencyPage> {
       setState(() {
         _contacts = decoded
             .map<Map<String, String>>(
-                (item) => {'name': item['name'], 'phone': item['phone']})
+              (item) => {'name': item['name'], 'phone': item['phone']},
+            )
             .toList();
       });
     }
@@ -95,9 +96,9 @@ class _EmergencyPageState extends State<EmergencyPage> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not launch dialer')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not launch dialer')));
     }
   }
 
@@ -106,9 +107,9 @@ class _EmergencyPageState extends State<EmergencyPage> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not launch SMS app')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not launch SMS app')));
     }
   }
 
@@ -153,60 +154,74 @@ class _EmergencyPageState extends State<EmergencyPage> {
             Expanded(
               child: _contacts.isEmpty
                   ? const Center(
-                child: Text('No contacts added',
-                    style: TextStyle(color: Colors.white54)),
-              )
-                  : ListView.builder(
-                itemCount: _contacts.length,
-                itemBuilder: (_, index) {
-                  final contact = _contacts[index];
-                  return Card(
-                    color: Colors.grey[900],
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15)),
-                    child: ListTile(
-                      title: Text(contact['name']!,
-                          style: const TextStyle(color: Colors.white)),
-                      subtitle: Text(contact['phone']!,
-                          style: const TextStyle(color: Colors.white70)),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.call,
-                                color: Colors.greenAccent),
-                            onPressed: () =>
-                                _makeCall(contact['phone']!),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.message,
-                                color: Colors.amberAccent),
-                            onPressed: () =>
-                                _sendSMS(contact['phone']!),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete,
-                                color: Colors.redAccent),
-                            onPressed: () => _removeContact(index),
-                          ),
-                        ],
+                      child: Text(
+                        'No contacts added',
+                        style: TextStyle(color: Colors.white54),
                       ),
+                    )
+                  : ListView.builder(
+                      itemCount: _contacts.length,
+                      itemBuilder: (_, index) {
+                        final contact = _contacts[index];
+                        return Card(
+                          color: Colors.grey[900],
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: ListTile(
+                            title: Text(
+                              contact['name']!,
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            subtitle: Text(
+                              contact['phone']!,
+                              style: const TextStyle(color: Colors.white70),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.call,
+                                    color: Colors.greenAccent,
+                                  ),
+                                  onPressed: () => _makeCall(contact['phone']!),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.message,
+                                    color: Colors.amberAccent,
+                                  ),
+                                  onPressed: () => _sendSMS(contact['phone']!),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.redAccent,
+                                  ),
+                                  onPressed: () => _removeContact(index),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor:
-                _isPlayingAlarm ? Colors.grey : Colors.redAccent,
-                minimumSize: const Size.fromHeight(50),
+                backgroundColor: _isPlayingAlarm
+                    ? Colors.grey
+                    : Colors.redAccent,
+                minimumSize: const Size.fromHeight(70),
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               onPressed: _playAlarm,
               icon: Icon(
-                  _isPlayingAlarm ? Icons.stop : Icons.warning_amber_rounded),
+                _isPlayingAlarm ? Icons.stop : Icons.warning_amber_rounded,
+              ),
               label: Text(_isPlayingAlarm ? 'Stop Alarm' : 'Trigger Alarm'),
             ),
           ],

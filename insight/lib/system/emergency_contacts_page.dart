@@ -149,10 +149,12 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
+            style: TextButton.styleFrom(minimumSize: const Size(120, 60)),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: _addContact,
+            style: ElevatedButton.styleFrom(minimumSize: const Size(120, 60)),
             child: const Text('Add Contact'),
           ),
         ],
@@ -192,6 +194,7 @@ class _EmergencyContactsPageState extends State<EmergencyContactsPage> {
                 backgroundColor: Colors.red[600],
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 20),
+                minimumSize: const Size.fromHeight(80),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),

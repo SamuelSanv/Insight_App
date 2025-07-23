@@ -15,7 +15,6 @@ import 'dart:async';
 import 'package:insight/system/settings_service.dart';
 import 'package:insight/system/server_settings_page.dart';
 import 'package:insight/system/emergency_contacts_page.dart';
-import 'package:insight/system/coming_soon_page.dart';
 
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
@@ -1092,84 +1091,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Emergency Contacts
-              ListTile(
-                leading: const Icon(Icons.emergency, color: Colors.red),
-                title: const Text('Emergency Contacts'),
-                subtitle: const Text('Manage emergency contacts'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _emergencyCall();
-                },
-              ),
-
-              // Navigation Assistance
-              ListTile(
-                leading: const Icon(Icons.navigation, color: Colors.blue),
-                title: const Text('Navigation Assistance'),
-                subtitle: const Text('Audio directions and path guidance'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const NavigationAssistancePage(),
-                    ),
-                  );
-                },
-              ),
-
-              // Offline Detection
-              ListTile(
-                leading: const Icon(Icons.offline_bolt, color: Colors.green),
-                title: const Text('Offline Detection'),
-                subtitle: const Text('Object detection without internet'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const OfflineDetectionPage(),
-                    ),
-                  );
-                },
-              ),
-
-              // Smart Learning
-              ListTile(
-                leading: const Icon(Icons.psychology, color: Colors.purple),
-                title: const Text('Smart Learning'),
-                subtitle: const Text('Personalized recognition and learning'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const SmartLearningPage(),
-                    ),
-                  );
-                },
-              ),
-
-              // Enhanced Voice Feedback
-              ListTile(
-                leading: const Icon(
-                  Icons.spatial_audio_off,
-                  color: Colors.orange,
-                ),
-                title: const Text('Enhanced Voice Feedback'),
-                subtitle: const Text('Spatial audio and detailed descriptions'),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const EnhancedVoicePage(),
-                    ),
-                  );
-                },
-              ),
             ],
           ),
         );
@@ -1203,7 +1124,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
                   backgroundColor: _isListening
                       ? Colors.redAccent
                       : Colors.blue,
-                  minimumSize: const Size.fromHeight(60),
+                  minimumSize: const Size.fromHeight(80),
                 ),
                 onPressed: _onVoiceCommand,
                 icon: Icon(_isListening ? Icons.mic : Icons.mic_none),
@@ -1215,7 +1136,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: isDetectionOn ? Colors.red : Colors.green,
-                  minimumSize: const Size.fromHeight(60),
+                  minimumSize: const Size.fromHeight(80),
                 ),
                 onPressed: _toggleDetection,
                 icon: Icon(isDetectionOn ? Icons.stop : Icons.play_arrow),
@@ -1229,7 +1150,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.deepPurple,
-                  minimumSize: const Size.fromHeight(60),
+                  minimumSize: const Size.fromHeight(80),
                 ),
                 onPressed: _openTTSSettings,
                 icon: const Icon(Icons.language),
@@ -1241,7 +1162,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.indigo,
-                  minimumSize: const Size.fromHeight(60),
+                  minimumSize: const Size.fromHeight(80),
                 ),
                 onPressed: _emergencyCall,
                 icon: const Icon(Icons.warning),
@@ -1253,7 +1174,7 @@ class _MainPageState extends State<MainPage> with RouteAware {
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.orange,
-                  minimumSize: const Size.fromHeight(60),
+                  minimumSize: const Size.fromHeight(80),
                 ),
                 onPressed: _openServerSettings,
                 icon: const Icon(Icons.settings),
