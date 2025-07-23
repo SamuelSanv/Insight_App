@@ -2,20 +2,20 @@
 
 ## Overview
 
-InSight is a Flutter-based mobile application designed to provide AI-powered visual assistance for visually impaired users. The app leverages computer vision, text-to-speech (TTS), speech recognition, and real-time object detection to help users navigate and understand their environment through voice commands and audio feedback.
+InSight is a Flutter-based mobile application designed to provide AI-powered visual assistance for visually impaired users. The app leverages computer vision, text-to-speech (TTS), speech recognition, and real-time object detection to help users navigate and understand their environment through voice commands and audio feedback. It is the mobile part of the Insight project set to run on mobile devices.
 
 ## Features
 
-### 🎯 Core Features
+### Core Features
 
 - **Real-time Object Detection**: Continuous camera-based object recognition with server-side AI processing
 - **Voice Command Interface**: Comprehensive speech-to-text command processing
-- **Text-to-Speech Feedback**: Audio announcements and guidance in multiple languages
+- **Text-to-Speech Feedback**: Audio announcements
 - **Emergency Contact System**: Quick access to emergency contacts with one-tap calling
 - **Battery & Connectivity Monitoring**: Real-time system status updates
 - **Server Configuration**: Customizable AI server endpoints
 
-### 🗣️ Voice Commands
+### Voice Commands
 
 - `"start detection"` / `"begin detection"` - Start continuous object detection
 - `"stop detection"` / `"end detection"` - Stop object detection
@@ -25,7 +25,7 @@ InSight is a Flutter-based mobile application designed to provide AI-powered vis
 - `"settings"` - Open server configuration
 - `"help"` - List all available commands
 
-### 📱 Accessibility Features
+### Accessibility Features
 
 - High contrast dark theme optimized for low vision users
 - Large touch targets for easy navigation
@@ -92,7 +92,7 @@ sequenceDiagram
     participant STT as Speech-to-Text
 
     U->>W: Launch App
-    W->>TTS: "Welcome to InSight"
+    W->>TTS: Welcome to InSight
     U->>W: Tap Screen
     W->>M: Navigate to Main Page
 
@@ -110,10 +110,10 @@ sequenceDiagram
         M->>TTS: Announce Results
     else Emergency Command
         M->>M: Open Emergency Contacts
-        M->>TTS: "Opening emergency contacts"
+        M->>TTS: Opening emergency contacts
     else Settings Command
         M->>M: Open Settings Page
-        M->>TTS: "Opening settings"
+        M->>TTS: Opening settings
     end
 
     loop Continuous Detection
@@ -212,7 +212,7 @@ flowchart TD
     B -->|Yes| C[Load First Contact]
     B -->|No| D[Prompt to Add Contacts]
 
-    C --> E[TTS: "Calling [Contact Name]"]
+    C --> E[TTS Calling Contact Name]
     E --> F[Launch Phone Dialer]
     F --> G[System Phone Call]
 
@@ -258,14 +258,14 @@ graph TD
     I -->|No| K[Continue Monitoring]
 
     G --> L{Battery Events}
-    L -->|Full| M[TTS: "Battery is full"]
-    L -->|Charging| N[TTS: "Device is charging"]
-    L -->|Low| O[TTS: "Low battery warning"]
+    L -->|Full| M[TTS Battery is full]
+    L -->|Charging| N[TTS Device is charging]
+    L -->|Low| O[TTS Low battery warning]
 
     J --> P{Connection Types}
-    P -->|WiFi| Q[TTS: "Connected to WiFi"]
-    P -->|Mobile| R[TTS: "Connected to mobile data"]
-    P -->|None| S[TTS: "No internet connection"]
+    P -->|WiFi| Q[TTS Connected to WiFi]
+    P -->|Mobile| R[TTS Connected to mobile data]
+    P -->|None| S[TTS No internet connection]
 
     H --> D
     K --> E
@@ -356,30 +356,13 @@ insight/
 
 - **porcupine_flutter**: Wake word detection (configured)
 
-## Setup Instructions
+  ```
 
-### Prerequisites
+  ```
 
-- Flutter SDK (>=3.8.1)
-- Android Studio / Xcode for mobile deployment
-- AI Vision Server (custom implementation required)
+## Server Configuration
 
-### Installation
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   flutter pub get
-   ```
-3. Configure your AI server endpoint in `lib/system/settings_service.dart`
-4. Run the application:
-   ```bash
-   flutter run
-   ```
-
-### Server Configuration
-
-The app requires an external AI vision server that accepts image uploads and returns object detection results. Configure the server URL in:
+The app requires an external AI vision server that accepts image uploads and returns object detection results. The server is part of the Insight Project. Configure the server URL in:
 
 - **Settings Service**: `lib/system/settings_service.dart`
 - **Runtime**: Through the app's server settings page
