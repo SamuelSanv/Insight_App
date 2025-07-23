@@ -14,8 +14,8 @@ import 'package:speech_to_text/speech_to_text.dart';
 import 'dart:async';
 import 'package:insight/system/settings_service.dart';
 import 'package:insight/system/server_settings_page.dart';
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
+import 'package:insight/system/emergency_contacts_page.dart';
+import 'package:insight/system/coming_soon_page.dart';
 
 final RouteObserver<ModalRoute<void>> routeObserver =
     RouteObserver<ModalRoute<void>>();
@@ -31,7 +31,6 @@ class _MainPageState extends State<MainPage> with RouteAware {
   bool isDetectionOn = false;
   bool _isDetecting = false;
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
-  bool _isRecording = false;
   final FlutterTts flutterTts = FlutterTts();
 
   // Speech to Text
@@ -39,6 +38,8 @@ class _MainPageState extends State<MainPage> with RouteAware {
   bool _speechEnabled = false;
   bool _isListening = false;
   String _recognizedWords = '';
+  int _speechRetryCount = 0;
+  static const int _maxSpeechRetries = 3;
 
   CameraController? _cameraController;
   String? _serverUrl;
@@ -445,12 +446,39 @@ class _MainPageState extends State<MainPage> with RouteAware {
   Future<void> _initSpeechToText() async {
     try {
       _speechEnabled = await _speechToText.initialize(
-        onError: (error) => print('Speech recognition error: $error'),
-        onStatus: (status) => print('Speech recognition status: $status'),
+        onError: (error) {
+          print('Speech recognition error: $error');
+          setState(() {
+            _isListening = false;
+          });
+          // Don't show error to user unless it's critical
+          if (error.errorMsg.contains('network') ||
+              error.errorMsg.contains('permission')) {
+            _safeSpeak(
+              "Speech recognition encountered an issue. Please check your internet connection and microphone permissions.",
+            );
+          }
+        },
+        onStatus: (status) {
+          print('Speech recognition status: $status');
+          // Handle status changes
+          if (status == 'notListening' && _isListening) {
+            setState(() {
+              _isListening = false;
+            });
+          }
+        },
+        debugLogging: false, // Disable debug logging for production
+        finalTimeout: const Duration(
+          seconds: 5,
+        ), // Wait longer for final results
       );
 
       if (_speechEnabled) {
         print('✅ Speech-to-text initialized successfully');
+        // Check available locales
+        var locales = await _speechToText.locales();
+        print('Available locales: ${locales.length}');
       } else {
         print('❌ Speech-to-text not available on this device');
       }
@@ -554,7 +582,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
   Future<void> _onVoiceCommand() async {
     await _safeExecute(() async {
       if (!_speechEnabled) {
-        await _safeSpeak("Speech recognition is not available on this device.");
+        await _safeSpeak(
+          "Speech recognition is not available on this device. Please check your microphone permissions and internet connection.",
+        );
         return;
       }
 
@@ -577,6 +607,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
           "Listening for your command. Say: start detection, stop detection, battery level, what do you see, emergency, or settings.",
         );
 
+        // Add a small delay after TTS to avoid interference
+        await Future.delayed(const Duration(milliseconds: 500));
+
         try {
           await _speechToText.listen(
             onResult: (result) {
@@ -589,17 +622,34 @@ class _MainPageState extends State<MainPage> with RouteAware {
                 _processVoiceCommand(_recognizedWords);
               }
             },
-            listenFor: const Duration(seconds: 15),
-            pauseFor: const Duration(seconds: 2),
-            partialResults: true,
-            cancelOnError: true,
-            listenMode: ListenMode.confirmation,
+            listenFor: const Duration(minutes: 2), // Extended listening time
+            pauseFor: const Duration(seconds: 5), // Longer pause tolerance
+            localeId: "en_US", // Specify locale for better recognition
+            onSoundLevelChange: (level) {
+              // Optional: Handle sound level changes
+              print('Sound level: $level');
+            },
+            listenOptions: SpeechListenOptions(
+              partialResults: true,
+              cancelOnError: false, // Don't cancel on minor errors
+              listenMode: ListenMode.dictation, // Better for longer phrases
+            ),
           );
+          _speechRetryCount = 0; // Reset retry count on successful start
         } catch (e) {
           setState(() {
             _isListening = false;
           });
-          throw Exception('Failed to start speech recognition: $e');
+          print('Failed to start speech recognition: $e');
+          // Try to retry if we haven't exceeded max retries
+          if (_speechRetryCount < _maxSpeechRetries) {
+            await _retryListening();
+          } else {
+            await _safeSpeak(
+              "Voice command is temporarily unavailable. Please check your microphone and internet connection.",
+            );
+            _speechRetryCount = 0;
+          }
         }
       } else {
         // Stop listening
@@ -616,15 +666,48 @@ class _MainPageState extends State<MainPage> with RouteAware {
         _isListening = false;
       });
       await _safeSpeak("Stopped listening.");
+      _speechRetryCount = 0; // Reset retry count on successful stop
     } catch (e) {
       print('Error stopping speech recognition: $e');
+      setState(() {
+        _isListening = false;
+      });
+    }
+  }
+
+  // Retry speech recognition with exponential backoff
+  Future<void> _retryListening() async {
+    if (_speechRetryCount >= _maxSpeechRetries) {
+      await _safeSpeak(
+        "Voice command is temporarily unavailable. Please try again later.",
+      );
+      setState(() {
+        _isListening = false;
+      });
+      _speechRetryCount = 0;
+      return;
+    }
+
+    _speechRetryCount++;
+    final delay = Duration(
+      seconds: _speechRetryCount * 2,
+    ); // Exponential backoff
+
+    await _safeSpeak("Retrying voice command in ${delay.inSeconds} seconds...");
+    await Future.delayed(delay);
+
+    if (!_isListening) {
+      await _onVoiceCommand();
     }
   }
 
   // Process voice commands
   Future<void> _processVoiceCommand(String command) async {
-    if (command.isEmpty) {
+    if (command.isEmpty || command.trim().length < 2) {
       await _safeSpeak("I didn't hear any command. Please try again.");
+      setState(() {
+        _isListening = false;
+      });
       return;
     }
 
@@ -699,6 +782,9 @@ class _MainPageState extends State<MainPage> with RouteAware {
         "I didn't understand that command. Say 'help' to hear all available commands, or try: start detection, stop detection, battery level, what do you see, emergency, or settings.",
       );
     }
+
+    // Add a small delay before potentially starting to listen again
+    await Future.delayed(const Duration(milliseconds: 500));
   }
 
   // Perform a single detection (for voice command)
@@ -908,8 +994,11 @@ class _MainPageState extends State<MainPage> with RouteAware {
   Future<void> _emergencyCall() async {
     await _safeExecute(() async {
       print("Emergency call triggered");
-      await _safeSpeak("Emergency contact opened");
-      Navigator.pushNamed(context, '/emergency');
+      await _safeSpeak("Opening emergency contacts");
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const EmergencyContactsPage()),
+      );
     });
   }
 
@@ -984,6 +1073,110 @@ class _MainPageState extends State<MainPage> with RouteAware {
     }
   }
 
+  // Show additional features menu
+  void _showFeatureMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (BuildContext context) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Additional Features',
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Emergency Contacts
+              ListTile(
+                leading: const Icon(Icons.emergency, color: Colors.red),
+                title: const Text('Emergency Contacts'),
+                subtitle: const Text('Manage emergency contacts'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _emergencyCall();
+                },
+              ),
+
+              // Navigation Assistance
+              ListTile(
+                leading: const Icon(Icons.navigation, color: Colors.blue),
+                title: const Text('Navigation Assistance'),
+                subtitle: const Text('Audio directions and path guidance'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const NavigationAssistancePage(),
+                    ),
+                  );
+                },
+              ),
+
+              // Offline Detection
+              ListTile(
+                leading: const Icon(Icons.offline_bolt, color: Colors.green),
+                title: const Text('Offline Detection'),
+                subtitle: const Text('Object detection without internet'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const OfflineDetectionPage(),
+                    ),
+                  );
+                },
+              ),
+
+              // Smart Learning
+              ListTile(
+                leading: const Icon(Icons.psychology, color: Colors.purple),
+                title: const Text('Smart Learning'),
+                subtitle: const Text('Personalized recognition and learning'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SmartLearningPage(),
+                    ),
+                  );
+                },
+              ),
+
+              // Enhanced Voice Feedback
+              ListTile(
+                leading: const Icon(
+                  Icons.spatial_audio_off,
+                  color: Colors.orange,
+                ),
+                title: const Text('Enhanced Voice Feedback'),
+                subtitle: const Text('Spatial audio and detailed descriptions'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const EnhancedVoicePage(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -991,6 +1184,13 @@ class _MainPageState extends State<MainPage> with RouteAware {
       appBar: AppBar(
         title: const Text('InSight Control'),
         backgroundColor: Colors.black,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: _showFeatureMenu,
+            tooltip: 'Additional Features',
+          ),
+        ],
       ),
       body: SafeArea(
         child: Padding(
